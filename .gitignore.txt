@@ -1,0 +1,11 @@
+# Ignore build outputs
+Debug/
+Release/
+*.o
+*.su
+*.elf
+*.bin
+*.map
+
+# Ignore IDE temporary files
+.settings/
