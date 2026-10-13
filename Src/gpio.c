@@ -74,10 +74,15 @@ void GPIO_Toggle(Pin_t pin) {
 // Interrupt handling
 // ---------------------------------------------------
 
+// Below the DSHOT DMA interrupt (0), which must never wait on a button
+#define GPIO_IRQ_PRIORITY 2
+
 static void (*callbacks[16][2])(void);
+static GPIO_TypeDef *linePort[16]; // Port routed to each EXTI line, to read its level
 
 void GPIO_Callback(Pin_t pin, void (*func)(void), PinEdge_t edge) {
 	callbacks[pin.bit][edge] = func;
+	linePort[pin.bit] = pin.port;
 
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
 
@@ -100,17 +105,29 @@ void GPIO_Callback(Pin_t pin, void (*func)(void), PinEdge_t edge) {
 	else
 		IRQn = EXTI15_10_IRQn;
 
-	NVIC_SetPriority(IRQn, 0);
+	NVIC_SetPriority(IRQn, GPIO_IRQ_PRIORITY);
 	NVIC_EnableIRQ(IRQn);
 }
 
 void GPIO_IRQHandler(int i) {
 	if (EXTI->PR & (1 << i)) {
 		EXTI->PR = (1 << i);
-		if (callbacks[i][RISE])
-			callbacks[i][RISE]();
-		if (callbacks[i][FALL])
-			callbacks[i][FALL]();
+
+		void (*rise)(void) = callbacks[i][RISE];
+		void (*fall)(void) = callbacks[i][FALL];
+
+		// EXTI only reports that an edge happened, not which one. With both
+		// edges armed, the pin level right after the edge tells them apart.
+		if (rise && fall) {
+			if (linePort[i]->IDR & (1 << i))
+				rise();
+			else
+				fall();
+		} else if (rise) {
+			rise();
+		} else if (fall) {
+			fall();
+		}
 	}
 }
 

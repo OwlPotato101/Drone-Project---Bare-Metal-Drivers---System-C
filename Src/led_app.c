@@ -3,16 +3,20 @@
 #include "systick.h"
 #include "uart.h"
 #include "timer.h" // Added for PWM timer features
+#include "sysclk.h"
 #include <stdbool.h>
 
-// Define the Green LED pin (PB7 on the NUCLEO-F446) [1, 2]
+// Define the Green LED pin (PA5, LD2 on the NUCLEO-F446RE) [1, 2]
+// PA8-PA11 are the DSHOT motor outputs, so the LED matrix and the encoder
+// switch moved from D2 (PA10) and D7 (PA8) to A3 and A4. Rewire before enabling.
+// B1 (PC13) is also the DSHOT bench test's arm/kill button: run one app or the other.
 static const Pin_t GreenLED = { GPIOA, 5 };
 static const Pin_t Button = { GPIOC, 13 };
-static const Pin_t D2Pin = { GPIOA, 10 }; //LED martix
+static const Pin_t D2Pin = { GPIOB, 0 }; //LED martix (A3, was D2/PA10)
 static const Pin_t D4Pin = { GPIOB, 5 }; //speaker
 static const Pin_t CLK_Pin = { GPIOB, 4 }; //Rotary Button Rotate
 static const Pin_t DT_Pin = { GPIOB, 10 }; //Rotary Button Rotate
-static const Pin_t SW_Pin = { GPIOA, 8 }; //Rotary Encoder Button
+static const Pin_t SW_Pin = { GPIOC, 1 }; //Rotary Encoder Button (A4, was D7/PA8)
 
 
 // --- NEW: PWM Timer LED Definition ---
@@ -37,11 +41,13 @@ static Time_t rotaryTime2 = 0;
 
 // --- NEW: PWM state variables ---
 //static Time_t pwmTimer = 0;
+#define PWM_MAX 1000 // Full brightness (ARR + 1)
 static int pwmValue = 10;
-static int temppwmValue = 5;
+static int temppwmValue = 5; // Brightness to restore when the encoder switch turns the LED back on
 //static int pwmStep = 1; // 1 for fading up, -1 for fading down
 
-static int speed[4] = { 200, 500, 1000, 0 };
+static const int speed[] = { 200, 500, 1000, 0 };
+#define SPEED_COUNT ((int) (sizeof speed / sizeof speed[0]))
 static int i = 0;
 static char cmd;
 static int counter1 = 0;
@@ -94,9 +100,9 @@ void Init_GreenLED(void) {
 	// --- NEW: Initialize the PWM LED Timer ---
 	TimerEnable(PwmLED);
 
-	// Assuming a 16MHz clock. Prescaler of 15 (16-1) = 1MHz timer clock.
+	// TIM2 runs at TIM_APB1_FREQ (48MHz). Prescaler of 47 (48-1) = 1MHz timer clock.
 	// ARR of 999 (1000-1) = 1kHz PWM frequency.
-	TimerPeriod(PwmLED, 16 - 1, 1000 - 1, 0);
+	TimerPeriod(PwmLED, (TIM_APB1_FREQ / 1000000) - 1, PWM_MAX - 1, 0);
 	TimerMode(PwmLED, OUTCMP, PWM1);
 	TimerStart(PwmLED);
 
@@ -124,14 +130,14 @@ void Task_GreenLED(void) {
 		if (cmd == '1') {
 			i++;
 			UART2_SendString("Scroll up \r\n");
-			if (i > 4) {
+			if (i >= SPEED_COUNT) {
 				i = 0;
 			}
 		} else if (cmd == '2') {
 			i--;
 			UART2_SendString("Scroll down \r\n");
 			if (i < 0) {
-				i = 4;
+				i = SPEED_COUNT - 1;
 			}
 		}
 	}
@@ -175,6 +181,11 @@ void Task_GreenLED(void) {
 //	if ((counter1 == 1) && (rotaryTime1 < rotaryTime2) && (pwmValue <= 1000)) {
 //
 //	}
+	// TimerOutput takes an unsigned value: a negative one would wrap to full brightness
+	if (pwmValue < 0)
+		pwmValue = 0;
+	if (pwmValue > PWM_MAX)
+		pwmValue = PWM_MAX;
 	TimerOutput(PwmLED, pwmValue);
 
 
@@ -204,7 +215,7 @@ void CallbackButtonRelease(void) {
 		UART2_SendString("\r\n Button Pressed");
 		GPIO_Output(D4Pin, HIGH);
 		speakerTime = TimeNow();
-		if (i > 4) {
+		if (i >= SPEED_COUNT) {
 			i = 0;
 		}
 	}
@@ -218,10 +229,10 @@ void CallbackButtonPressSW(void) {
 void CallbackButtonReleaseSW(void) {
 	if (TimePassed(debounceTime) >= 200) {
 		UART2_SendString("\r\n Rotary Button Pressed");
-		temppwmValue = pwmValue;
 		if (pwmValue == 0){
-			pwmValue = temppwmValue;
+			pwmValue = temppwmValue; // Back on at the saved brightness
 		}else{
+			temppwmValue = pwmValue; // Remember it, then switch off
 			pwmValue = 0;
 		}
 	}

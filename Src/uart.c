@@ -1,11 +1,9 @@
 #include "uart.h"
+#include "sysclk.h" // PCLK1_FREQ (24MHz)
 
 // Internal state for the interrupt "Mailbox"
 static volatile char last_command = 0;
 static volatile bool command_ready = false;
-
-// From your sysclk.c, PCLK1 is 24MHz
-#define PCLK1_FREQ 24000000
 
 void UART2_Init(uint32_t baud_rate) {
     // 1. Enable Clock for USART2 and GPIOA

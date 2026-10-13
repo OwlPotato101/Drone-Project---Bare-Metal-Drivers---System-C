@@ -13,9 +13,9 @@
 
 // Force an update of timer registers after configuration changes
 static void UpdateTimerRegisters(TIM_TypeDef *TIM) {
-    TIM->EGR |= TIM_EGR_UG;       // Generate update event
+    TIM->EGR = TIM_EGR_UG;        // Generate update event (EGR is write-only)
     while (!(TIM->SR & TIM_SR_UIF)) {} // Wait for UIF flag
-    TIM->SR &= ~TIM_SR_UIF;       // Clear flag
+    TIM->SR = ~TIM_SR_UIF;        // Clear flag (rc_w0: a read-modify-write could clear other flags)
 }
 
 // Enable the timer peripheral clock + configure GPIO pin
@@ -212,7 +212,7 @@ static void TimerIRQHandler(TIM_TypeDef *TIM, int i, int IRQn) {
 
     for (int j = 0; j <= 4; j++) {
         if ((TIM->SR & (1 << j)) && (TIM->DIER & (1 << j))) {
-            TIM->SR &= ~(1 << j);
+            TIM->SR = ~(1 << j);
 
             fp = callbacks[i - 1][j];
             if (fp != NULL) {
